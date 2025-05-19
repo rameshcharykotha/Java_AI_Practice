@@ -1,10 +1,10 @@
-package com.java2practice.ai.courses;
+package com.java2practice.ai.chat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class CoursesApplicationTests {
+class SpringAiDemoApplicationTests {
 
 	@Test
 	void contextLoads() {
