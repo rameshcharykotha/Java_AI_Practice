@@ -1,5 +1,6 @@
 package com.example.mcp.server;
 
+import com.example.mcp.model.Protocol;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -30,15 +31,65 @@ public class ClientHandler implements Runnable {
     public void run() {
         String inputLine;
         try {
+            // Ensure 'in' is initialized before use. If 'in' can be null due to constructor issues, handle that.
+            if (in == null) {
+                System.err.println("ClientHandler for " + clientSocket.getRemoteSocketAddress() + " has no input stream. Closing connection.");
+                return; // Exit run method if input stream is not available
+            }
             while ((inputLine = in.readLine()) != null) {
                 System.out.println("Received from client " + clientSocket.getRemoteSocketAddress() + ": " + inputLine);
-                server.broadcastMessage(inputLine, this);
+                String response = processClientRequest(inputLine);
+                // Ensure 'out' is initialized and socket is open before sending response
+                if (out != null && !clientSocket.isClosed()) {
+                    sendMessage(response);
+                } else {
+                    System.err.println("Cannot send response to " + clientSocket.getRemoteSocketAddress() + ". Output stream or socket closed.");
+                    break; // Exit loop if cannot send response
+                }
             }
         } catch (IOException e) {
-            // This exception can occur if the client disconnects abruptly
-            System.err.println("Client " + clientSocket.getRemoteSocketAddress() + " disconnected due to IOException in run(): " + e.getMessage());
+            // Avoid printing error if the client initiated shutdown or socket is already closed.
+            if (!clientSocket.isClosed() && !"Socket closed".equals(e.getMessage()) && !"Connection reset".equals(e.getMessage())) {
+                 System.err.println("Client " + clientSocket.getRemoteSocketAddress() + " disconnected due to IOException: " + e.getMessage());
+            }
         } finally {
             handleDisconnect();
+        }
+    }
+
+    private String processClientRequest(String request) {
+        if (request == null) {
+            return Protocol.ERROR_PREFIX + "Null request received.";
+        }
+        if (request.startsWith(Protocol.LOAD_MODEL_PREFIX)) {
+            String modelId = request.substring(Protocol.LOAD_MODEL_PREFIX.length()).trim();
+            if (modelId.isEmpty()) {
+                return Protocol.ERROR_PREFIX + "Model ID cannot be empty for LOAD_MODEL.";
+            }
+            return server.loadModel(modelId);
+        } else if (request.startsWith(Protocol.GET_CONTEXT_PREFIX)) {
+            String modelId = request.substring(Protocol.GET_CONTEXT_PREFIX.length()).trim();
+            if (modelId.isEmpty()) {
+                return Protocol.ERROR_PREFIX + "Model ID cannot be empty for GET_CONTEXT.";
+            }
+            return server.getModelContext(modelId);
+        } else if (request.startsWith(Protocol.UPDATE_CONTEXT_PREFIX)) {
+            String parts = request.substring(Protocol.UPDATE_CONTEXT_PREFIX.length());
+            int separatorIndex = parts.indexOf(':'); // Only look for the first colon
+            if (separatorIndex <= 0 || separatorIndex == parts.length() - 1) { // modelId or jsonData is empty
+                return Protocol.ERROR_PREFIX + "Invalid format for UPDATE_CONTEXT. Expected: <model_id>:<json_data>";
+            }
+            String modelId = parts.substring(0, separatorIndex).trim();
+            String jsonData = parts.substring(separatorIndex + 1).trim();
+            if (modelId.isEmpty()) { // Double check after trim
+                return Protocol.ERROR_PREFIX + "Model ID cannot be empty for UPDATE_CONTEXT.";
+            }
+            if (jsonData.isEmpty()) { // Double check after trim
+                return Protocol.ERROR_PREFIX + "JSON data cannot be empty for UPDATE_CONTEXT.";
+            }
+            return server.updateModelContext(modelId, jsonData);
+        } else {
+            return Protocol.ERROR_PREFIX + "Unknown command: " + request;
         }
     }
 

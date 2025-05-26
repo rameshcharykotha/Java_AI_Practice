@@ -1,5 +1,6 @@
 package com.example.mcp.client;
 
+import com.example.mcp.model.Protocol;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -67,25 +68,47 @@ public class Client {
     private void sendMessages() {
         try (BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in))) {
             String userInput;
-            System.out.println("Enter messages to send to the server (type 'exit' or 'quit' to disconnect):");
+            System.out.println("Enter commands (e.g., 'load <modelId>', 'get <modelId>', 'update <modelId> <jsonData>', 'exit'):");
             while (running && (userInput = consoleReader.readLine()) != null) {
+                userInput = userInput.trim();
                 if ("exit".equalsIgnoreCase(userInput) || "quit".equalsIgnoreCase(userInput)) {
-                    running = false; // Signal shutdown
+                    running = false;
                     break;
                 }
-                if (out != null && !socket.isClosed()) {
-                    out.println(userInput);
-                    System.out.println("Sent to Server: " + userInput); // Log sent message
+
+                String messageToSend = null;
+                String[] parts = userInput.split(" ", 3); // Split into command, modelId, and optional jsonData
+                String command = parts.length > 0 ? parts[0].toLowerCase() : "";
+
+                if ("load".equals(command) && parts.length == 2) {
+                    messageToSend = Protocol.LOAD_MODEL_PREFIX + parts[1].trim();
+                } else if ("get".equals(command) && parts.length == 2) {
+                    messageToSend = Protocol.GET_CONTEXT_PREFIX + parts[1].trim();
+                } else if ("update".equals(command) && parts.length == 3) {
+                    // Ensure modelId is not empty
+                    String modelId = parts[1].trim();
+                    if (modelId.isEmpty()) {
+                        System.out.println("Client: Model ID cannot be empty for update command.");
+                        continue;
+                    }
+                    messageToSend = Protocol.UPDATE_CONTEXT_PREFIX + modelId + ":" + parts[2].trim();
                 } else {
-                    System.err.println("Client error: Cannot send message. Socket is closed.");
-                    running = false; // Connection lost, signal shutdown
+                    System.out.println("Client: Unknown command or incorrect format. Available: load, get, update, exit");
+                    continue; 
+                }
+
+                if (messageToSend != null && out != null && !socket.isClosed()) {
+                    out.println(messageToSend);
+                    System.out.println("Sent to Server: " + messageToSend);
+                } else if (out == null || socket.isClosed()) {
+                    System.err.println("Client error: Cannot send message. Socket is closed or output stream is null.");
+                    running = false; // Connection lost or error, signal shutdown
                 }
             }
         } catch (IOException e) {
             System.err.println("Client error: Error reading from console: " + e.getMessage());
         } finally {
-            // If this loop exits, signal shutdown
-            running = false;
+            running = false; // Ensure shutdown if loop exits
         }
     }
 
